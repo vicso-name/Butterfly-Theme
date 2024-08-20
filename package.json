@@ -1,0 +1,37 @@
+{
+  "name": "starter",
+  "version": "1.0.2",
+  "description": "This is the gulp starter kit for WordPress theme and plugin development purposes.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "gulp",
+    "kit"
+  ],
+  "author": "VICSO",
+  "license": "ISC",
+  "devDependencies": {
+    "browser-sync": "^2.29.3",
+    "gulp": "^4.0.2",
+    "gulp-autoprefixer": "^8.0.0",
+    "gulp-cached": "^1.1.1",
+    "gulp-clean-css": "^4.3.0",
+    "gulp-concat": "^2.6.1",
+    "gulp-if": "^3.0.0",
+    "gulp-less": "^5.0.0",
+    "gulp-plumber": "^1.2.1",
+    "gulp-remember": "^1.0.1",
+    "gulp-sass": "^5.1.0",
+    "gulp-uglify-es": "^2.0.0",
+    "jquery": "^3.7.0",
+    "sass": "^1.77.8"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.1",
+    "glightbox": "^3.2.0",
+    "isotope-layout": "^3.0.6",
+    "swiper": "^10.2.0"
+  }
+}

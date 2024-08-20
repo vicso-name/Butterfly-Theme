@@ -1,0 +1,12 @@
+# Ignore node modules and build directories
+**/node_modules/
+
+# Ignore environment and system files
+Thumbs.db
+.DS_Store
+debug.log
+
+# Ignore specific directories or files
+**/_backstage
+package-lock.json
+
