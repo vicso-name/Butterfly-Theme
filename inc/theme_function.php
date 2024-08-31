@@ -160,3 +160,26 @@ function customize_project_archive_query($query) {
         $query->set('posts_per_page', -1);
     }
 }
+
+function register_acf_front_page_block() {
+    acf_register_block_type(array(
+        'name'              => 'main_flexible_builder',
+        'title'             => __('Main Page Builder'),
+        'description'       => __('The custom builder for creating the main page structure'),
+        'render_callback'   => 'render_acf_front_page_block',
+        'category'          => 'formatting',
+        'icon'              => 'forms',
+        'keywords'          => array('main', 'builder', 'structure'),
+    ));
+}
+
+function render_acf_front_page_block($block) {
+    if (is_page_template('templates/front-page.php')) {
+        include get_template_directory() . '/template-parts/blocks/front-page-builder/front-page-builder.php';
+    } else {
+        echo '<p>I\'m sorry, but this block\'s structure shows only on the front-page template.</p>';
+        return;
+    }
+}
+
+add_action('acf/init', 'register_acf_front_page_block');
