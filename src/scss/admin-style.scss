@@ -1,0 +1,22 @@
+// ─────────────────────────────────────────────
+// ACF Blocks v3: hide the inline fields panel ACF renders in the block
+// Inspector sidebar by default (title/fields form + its own "Open Expanded
+// Editor" button) — editing happens exclusively through the modal opened
+// from the block toolbar's own pencil icon (see acf_blocks.php's
+// 'expanded_editor_buttons' => ['toolbar'], which removes the sidebar's
+// own duplicate of that button; this rule removes the fields form itself).
+// .acf-block-panel is ACF's own wrapper class for that sidebar form,
+// scoped here to .block-editor-block-inspector (WP core's sidebar
+// container) so this can't ever affect the modal, which React portals
+// outside the inspector sidebar's own DOM subtree.
+//
+// This file is loaded via admin_enqueue_scripts (inc/enqueue.php) — the
+// classic top-level-admin-document hook, which reaches the sidebar/
+// toolbar/chrome but NEVER the block editor's iframe canvas. Rules meant
+// for the canvas itself (block width, backgrounds) belong in
+// editor-canvas-background.scss instead, loaded via enqueue_block_assets.
+// ─────────────────────────────────────────────
+
+.block-editor-block-inspector .acf-block-panel {
+  display: none !important;
+}

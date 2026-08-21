@@ -126,7 +126,20 @@ add_action('wp_enqueue_scripts', function () {
  * Editor (block editor) assets
  * ----------------------------------------------------------- */
 add_action('enqueue_block_editor_assets', function () {
-    // Editor JS
+    // Toggler add-on disabled — fully on ACF Blocks v3's own UI
+    // (Edit-in-modal/sidebar) now instead of the collapsible inline toggle.
+    // WordPress 7.1 removed the only way to opt out of the always-iframed
+    // block editor canvas, and this toggle only ever worked in a
+    // non-iframed canvas (it reaches in from the top-level document, which
+    // no longer shares any DOM with the canvas). ACF Pro 6.6+'s "Blocks
+    // v3" is what actually works inside the iframe.
+    if (defined('SMPLFY_DISABLE_ACF_TOGGLE') && SMPLFY_DISABLE_ACF_TOGGLE) {
+        return;
+    }
+
+    // Editor JS — runs in the top-level admin document, reaches into the
+    // iframed canvas itself (see admin-scripts.js), so it doesn't need
+    // to be iframe-replayed.
     wp_enqueue_script(
         'btf-editor-scripts',
         smplfy_asset_url('build/js/admin-scripts.min.js'),
@@ -135,13 +148,96 @@ add_action('enqueue_block_editor_assets', function () {
         true
     );
 
-    // Editor CSS
+    // Editor CSS (.acf-block-toggle) moved to enqueue_block_assets below
+    // — the toggle headers admin-scripts.js inserts live INSIDE the
+    // iframe (it manipulates the iframe's own DOM), but this hook only
+    // reaches the top-level document, so this file's rules never applied
+    // to them there. Same registration-vs-enqueue-hook gap as everything
+    // else fixed below.
+});
+
+/* -----------------------------------------------------------
+ * Block editor iframe canvas assets
+ * -----------------------------------------------------------
+ * `enqueue_block_assets` fires for BOTH the top-level admin document AND
+ * the block editor's iframe canvas — WordPress rebuilds the iframe's own
+ * stylesheet/script set by replaying this action in a fresh registry (see
+ * _wp_get_iframed_editor_assets() in wp-includes/block-editor.php). It
+ * does NOT replay enqueue_block_editor_assets, so anything that needs to
+ * reach the canvas itself has to be registered here, gated by the
+ * `should_load_block_editor_scripts_and_styles` filter (forced false only
+ * during the iframe-collection pass) to avoid double-loading it into the
+ * top-level document too.
+ * ----------------------------------------------------------- */
+add_action('enqueue_block_assets', function () {
+    if (apply_filters('should_load_block_editor_scripts_and_styles', true)) {
+        return;
+    }
+
+    // ACF Pro's own field-editing CSS (the actual repeater UI, image/link
+    // field pickers, etc.) is registered on `init` but only ever
+    // *enqueued* via `admin_enqueue_scripts` — top-document-only. It's
+    // registered globally by this point in the request regardless of
+    // which pass we're in, so re-enqueuing by handle here is enough to
+    // pull it into the iframe too. wp_style_is(..., 'registered') keeps
+    // the acf-pro-* handles safe on sites running the free version of
+    // ACF, where they don't exist.
+    foreach (['acf-global', 'acf-input', 'acf-field-group', 'acf-pro-input', 'acf-pro-field-group'] as $acf_handle) {
+        if (wp_style_is($acf_handle, 'registered')) {
+            wp_enqueue_style($acf_handle);
+        }
+    }
+
+    // WP core's own <a class="button"> styling (padding, border,
+    // border-radius) lives in wp-includes/css/buttons.css, handle
+    // `buttons`. It's registered with no dependents pulling it in
+    // automatically, and the iframe replay only pulls in `wp-edit-blocks`'s
+    // own dependency chain, which never reaches it either — any site using
+    // ACF's iframed block editor has always rendered ACF's "Select Link"/
+    // "Add Image" buttons unstyled without this.
+    wp_enqueue_style('buttons');
+
+    // Design tokens + typography + layout that every section's SCSS reads
+    // via var(--...) — without this, ACF block previews in the editor
+    // render with every custom property unresolved, showing up blank/
+    // broken rather than merely unstyled.
+    //
+    // build/css/editor-preview.min.css (gulpfile.js: stylesEditorPreview)
+    // is style.min.css + every section's CSS concatenated and wrapped in
+    // `@scope (body) to (:where(.acf-fields))` at build time — its
+    // selectors can only ever match inside the iframe body and are
+    // structurally barred from matching anything inside ACF's own field-
+    // editing UI.
     wp_enqueue_style(
-        'btf-editor-styles',
-        smplfy_asset_url('build/css/acf-block-toggle.min.css'),
-        ['wp-edit-blocks'],
-        smplfy_asset_ver('build/css/acf-block-toggle.min.css')
+        'btf-editor-preview-styles',
+        smplfy_asset_url('build/css/editor-preview.min.css'),
+        [],
+        smplfy_asset_ver('build/css/editor-preview.min.css')
     );
+
+    // Matches the canvas <body> background to the frontend's, and pins
+    // custom blocks to a fixed width in the canvas — see
+    // editor-canvas-background.scss's own header comment. NOT loaded via
+    // add_editor_style(): combined with the always-iframed (WP 7.1+)
+    // canvas on a classic (non-theme.json) theme, that mechanism caused
+    // the whole iframe to spuriously remount on certain interactions.
+    wp_enqueue_style(
+        'btf-editor-canvas-bg-styles',
+        smplfy_asset_url('build/css/editor-canvas-background.min.css'),
+        [],
+        smplfy_asset_ver('build/css/editor-canvas-background.min.css')
+    );
+
+    // ACF block collapse toggle (admin-scripts.js's markup).
+    // Toggler add-on disabled — see enqueue_block_editor_assets above.
+    if (!(defined('SMPLFY_DISABLE_ACF_TOGGLE') && SMPLFY_DISABLE_ACF_TOGGLE)) {
+        wp_enqueue_style(
+            'btf-editor-styles',
+            smplfy_asset_url('build/css/acf-block-toggle.min.css'),
+            ['wp-edit-blocks'],
+            smplfy_asset_ver('build/css/acf-block-toggle.min.css')
+        );
+    }
 });
 
 /* -----------------------------------------------------------

@@ -6,10 +6,25 @@ A WordPress theme boilerplate where every page section is an independently regis
 
 ## Requirements
 
-- WordPress 5.x+ with **ACF Pro** installed and active
+- WordPress 7.1+ (always-iframed block editor canvas — see below) with **ACF Pro 6.6+** installed and active (Blocks v3 API, required for the iframed canvas)
 - PHP 7.4+
 - Node.js 18+
 - A local development server (MAMP, LocalWP, Laragon, etc.)
+
+### Required mu-plugins (not tracked in this repo)
+
+This theme's blocks are built for ACF Blocks v3's own editing UI (modal/
+sidebar), required because WordPress 7.1 removed the ability to opt out of
+the always-iframed block editor canvas. Two small, portable mu-plugins are
+required on **every environment** (they're WP-instance-level, not theme-
+level, hence not tracked here) — copy them to `wp-content/mu-plugins/`:
+
+- `acf_blocks_wp71_compat.php` — forces the ACF Blocks v3 API
+- `block_editor_reveal_animation_fix.php` — fixes canvas-only cosmetic bugs (scroll animations, sliders, clickable preview links)
+
+Without these, block editing will appear broken (fields won't show where
+expected, blocks may render incorrectly in the canvas). See `CLAUDE.md` §
+"ACF Blocks v3 / iframe editor compatibility" for the full explanation.
 
 ---
 

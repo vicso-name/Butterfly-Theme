@@ -31,6 +31,7 @@ const paths = {
     sections: 'src/scss/sections/**/*.scss',
     admin: 'src/scss/admin-style.scss',
     blockToggle: 'src/scss/acf-block-toggle.scss',
+    editorCanvas: 'src/scss/editor-canvas-background.scss',
     dest: 'build/css',
     destSections: 'build/css/sections',
     destAdmin: 'build/css'
@@ -168,6 +169,117 @@ function stylesSections() {
     .pipe(browserSync.stream());
 }
 
+function stylesEditorCanvas() {
+  return src(paths.styles.editorCanvas)
+    .pipe(plumber({ errorHandler: notify.onError("Error in Styles Editor Canvas: <%= error.message %>") }))
+    .pipe(sass({ outputStyle: 'expanded' }))
+    .pipe(rename({ suffix: '.min' }))
+    .pipe(autoprefixer({ overrideBrowserslist: ['last 10 versions'], grid: true }))
+    .pipe(gulpIf(isProduction, cleanCSS({ level: { 1: { specialComments: 0 } } })))
+    .pipe(dest(paths.styles.dest))
+    .pipe(browserSync.stream());
+}
+
+/**
+ * Block editor preview CSS — the block editor's iframe canvas (where ACF
+ * block previews render) is the SAME document as ACF's own field-editing
+ * UI (.acf-fields), so simply loading the theme's normal CSS there makes
+ * its un-scoped resets/typography (bare `body`, `h1`-`h5`, `a`, `input`,
+ * `textarea`... selectors — fine on the frontend, where nothing else
+ * shares the page) collide with and mangle ACF's own field styling.
+ *
+ * Rather than trying to patch each collision with overrides, this
+ * concatenates the already-compiled style.min.css + every section's CSS
+ * and wraps the result in `@scope (body) to (:where(.acf-fields))` —
+ * every selector inside can only ever match within the iframe body and
+ * is structurally barred from matching anything inside an .acf-fields
+ * subtree, so it cannot touch ACF's UI no matter what selectors get
+ * added to the theme later.
+ *
+ * Selectors inside `@scope (X) { ... }` get an implicit `:scope ` prefix
+ * — a DESCENDANT combinator — so they can only ever match descendants of
+ * the scope root, never the root element X itself. `:root` and bare
+ * `html { ... }` rules both resolve to the single <html> element, which
+ * can't be its own descendant, so nested inside @scope (of any root)
+ * they're permanently dead — this would break every custom property
+ * (--color-primary etc. never resolving anywhere), so :root and bare
+ * html{} blocks are hoisted out above the @scope wrapper as plain global
+ * rules instead. Also handles a responsive `@media (...) { :root { ... } }`
+ * override — Sass compiles a media-wrapped :root block that way, and
+ * hoisting just the inner :root would silently drop the media condition,
+ * so whole @media blocks whose *entire* body is :root rule(s) are hoisted
+ * intact instead. Must run after stylesMain + stylesSections (reads their
+ * output), see stylesEditorPreview below.
+ */
+function extractDocumentRootBlocks(css) {
+  const extracted = [];
+  let remainder = '';
+  let lastIndex = 0;
+  const re = /@media[^{]*\{|:root\s*\{|html\s*\{/g;
+  let match;
+
+  while ((match = re.exec(css))) {
+    let depth = 1;
+    let i = match.index + match[0].length;
+    while (depth > 0 && i < css.length) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}') depth--;
+      i++;
+    }
+    const block = css.slice(match.index, i);
+
+    let shouldHoist = true;
+    if (match[0].startsWith('@media')) {
+      const inner = block.slice(block.indexOf('{') + 1, block.lastIndexOf('}')).trim();
+      shouldHoist = /^((:root|html)\s*\{[^{}]*\}\s*)+$/.test(inner);
+    }
+
+    if (shouldHoist) {
+      remainder += css.slice(lastIndex, match.index);
+      extracted.push(block);
+      lastIndex = i;
+    }
+
+    re.lastIndex = i;
+  }
+
+  remainder += css.slice(lastIndex);
+  return { extracted, remainder };
+}
+
+function stylesEditorPreview(done) {
+  const files = [path.join(paths.styles.dest, 'style.min.css')];
+
+  if (fs.existsSync(paths.styles.destSections)) {
+    fs.readdirSync(paths.styles.destSections)
+      .filter((f) => f.endsWith('.min.css'))
+      .forEach((f) => files.push(path.join(paths.styles.destSections, f)));
+  }
+
+  let combined = '';
+  files.forEach((file) => {
+    if (fs.existsSync(file)) {
+      combined += fs.readFileSync(file, 'utf8') + '\n';
+    }
+  });
+
+  // @import must be the first thing in a stylesheet (style.min.css
+  // appends one for fonts.css) — @scope can't contain a nested @import,
+  // so hoist any out above the wrapper instead of dropping them.
+  const imports = [];
+  let bodyCss = combined.replace(/@import\s+[^;]+;/g, (match) => {
+    imports.push(match);
+    return '';
+  });
+
+  const { extracted: rootBlocks, remainder } = extractDocumentRootBlocks(bodyCss);
+  bodyCss = remainder;
+
+  const output = `${imports.join('\n')}\n${rootBlocks.join('\n')}\n@scope (body) to (:where(.acf-fields)) {\n${bodyCss}\n}\n`;
+  fs.writeFileSync(path.join(paths.styles.dest, 'editor-preview.min.css'), output);
+  done();
+}
+
 
 function browsersyncServe(done) {
   browserSync.init({
@@ -184,10 +296,11 @@ function browsersyncReload(done) {
 }
 
 function startwatch() {
-  watch('src/scss/**/*.scss', stylesMain);
-  watch(paths.styles.sections, stylesSections);
+  watch('src/scss/**/*.scss', series(stylesMain, stylesEditorPreview));
+  watch(paths.styles.sections, series(stylesSections, stylesEditorPreview));
   watch(paths.styles.admin, stylesAdmin);
   watch(paths.styles.blockToggle, stylesBlockToggle);
+  watch(paths.styles.editorCanvas, stylesEditorCanvas);
   watch(paths.scripts.main, scriptsMain);
   watch(paths.scripts.sections, scriptsSections);
   watch(paths.php.src, browsersyncReload);
@@ -215,10 +328,13 @@ async function lintJs() {
 
 const lint = parallel(lintScss, lintJs);
 const scripts = parallel(scriptsMain, scriptsSections);
-const styles = parallel(stylesMain, stylesSections, stylesAdmin, stylesBlockToggle);
+const styles = parallel(stylesMain, stylesSections, stylesAdmin, stylesBlockToggle, stylesEditorCanvas);
+// stylesEditorPreview reads stylesMain/stylesSections' compiled output off
+// disk, so it must run after that parallel group finishes, not inside it.
+const stylesAll = series(styles, stylesEditorPreview);
 
-const build = series(lint, clean, parallel(styles, scripts, copyFonts, generateFontsCSS));
-const dev = series(clean, parallel(styles, scripts), browsersyncServe, startwatch);
+const build = series(lint, clean, parallel(stylesAll, scripts, copyFonts, generateFontsCSS));
+const dev = series(clean, parallel(stylesAll, scripts), browsersyncServe, startwatch);
 
 exports.clean = clean;
 exports.lint = lint;
@@ -226,6 +342,8 @@ exports.scripts = scripts;
 exports.styles = styles;
 exports.stylesAdmin = stylesAdmin;
 exports.stylesBlockToggle = stylesBlockToggle;
+exports.stylesEditorCanvas = stylesEditorCanvas;
+exports.stylesEditorPreview = stylesEditorPreview;
 exports.browsersync = browsersyncServe;
 exports.watch = startwatch;
 exports.copyFonts = copyFonts;

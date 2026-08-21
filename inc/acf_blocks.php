@@ -36,8 +36,35 @@ function smplfy_register_acf_blocks() {
             'icon'            => 'admin-customizer',
             'mode'            => 'preview',
             'keywords'        => ['section', $block_name],
+            // Drives the editor canvas's full-width behavior — React reads
+            // this top-level 'align' client-side as the block's default
+            // alignment (giving the .wp-block wrapper data-align="full",
+            // which is what WP core's own .wp-block[data-align="full"] {
+            // max-width: none; } keys off). The block editor's client also
+            // sends this resolved value back into $block['align'] on every
+            // canvas preview render, unlike on the real frontend where
+            // this key is never set — if a block template ever does
+            // something like `$classes .= ' align' . $block['align'];`,
+            // that class WILL show up in the editor only. If the project's
+            // own CSS later adds a generic `.alignfull > .container {
+            // max-width: 100%; }`-style rule (common for content that
+            // legitimately opts into WP's alignment system), it can then
+            // wrongly stretch a custom block's own container edge-to-edge
+            // in the canvas — see editor-canvas-background.scss's
+            // `.acf-block-preview > *` rule, which pins every custom
+            // block's own rendered root element to a fixed, centered width
+            // in the canvas regardless of what its inner CSS does, so this
+            // never becomes visible even if that collision happens later.
+            'align'           => 'full',
+            // Only offer the "Open Expanded Editor" (modal) button on the
+            // block toolbar's own pencil icon — ACF also renders a second,
+            // identical button inline above the fields in the Inspector
+            // sidebar panel by default, which duplicates the toolbar one.
+            // See admin-style.scss's `.acf-block-panel` rule, which hides
+            // that whole sidebar fields panel for the same reason.
+            'expanded_editor_buttons' => ['toolbar'],
             'supports'        => [
-                'align' => false,
+                'align' => ['wide', 'full'],
                 'mode'  => true,
                 'jsx'   => true,
             ],

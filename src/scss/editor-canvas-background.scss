@@ -1,0 +1,51 @@
+// Loaded via enqueue_block_assets (inc/enqueue.php), NOT add_editor_style()
+// — add_editor_style() is WP core's own documented mechanism for exactly
+// this (it auto-rewrites a plain `body {}` selector to
+// `.editor-styles-wrapper {}`), but combined with the always-iframed post
+// editor (WP 7.1+) on a classic theme (no theme.json) it caused the whole
+// canvas iframe to spuriously remount on certain interactions — confirmed
+// via a duplicated console log, every editor bootstrap line printed twice.
+// Core's own dev-mode warning on a different stylesheet pointed at the
+// actual cause: "global-styles-css-custom-properties-inline-css was added
+// to the iframe incorrectly. Please use block.json or enqueue_block_assets
+// to add styles to the iframe." This file's plain `body {}` rule isn't
+// wrapped in build/css/editor-preview.min.css's own `@scope (body) to
+// (...)` (see gulpfile.js's stylesEditorPreview), so it isn't scope-
+// excluded from matching the real <body> the way one inside that wrapper
+// would be — it reaches it as-is.
+body {
+  background-color: var(--color-background);
+}
+
+// Custom ACF blocks are registered with a top-level 'align' => 'full'
+// default purely to get WP core's own `[data-align="full"]` full-width
+// mechanism working in the canvas (see acf_blocks.php's comment on that
+// key) — but the block editor's client also sends that resolved 'align'
+// value back into $block['align'] on every canvas preview render. If the
+// project later adds its own generic alignment CSS (e.g. `.alignfull >
+// .container { max-width: 100%; }`, common for content that legitimately
+// opts into WP's alignment system — see the sibling project themes this
+// starter is derived from for a real example), that rule can then
+// wrongly stretch a custom block's own container edge-to-edge in the
+// canvas too, even though the block manages its own width independently
+// of WP's alignment system and was never meant to respond to it.
+//
+// Pin every custom block's own rendered root element to a fixed, centered
+// width in the canvas instead, so it reads as a contained column while
+// editing no matter what container class/naming convention the block's
+// own template happens to use. `.acf-block-preview` is ACF's OWN wrapper
+// class around a block's rendered output (present on every ACF v3 block
+// regardless of project, unlike a theme-specific marker class), so this
+// works without needing every generated block to share one — `>` (direct
+// child) is safe here specifically because `.acf-block-preview` is the
+// block's own immediate parent, unlike `.wp-block[data-align="full"]`
+// itself, which is NOT a direct parent (ACF nests its own wrapper(s)
+// in between, so a `>` combinator from there never matches). Core
+// Gutenberg blocks (image, cover, etc.) are never wrapped in
+// `.acf-block-preview`, so they're unaffected and keep their normal
+// edge-to-edge [data-align="full"] behavior, matching the frontend.
+.wp-block[data-align="full"] .acf-block-preview > * {
+  width: 1200px;
+  max-width: none !important;
+  margin: 0 auto;
+}

@@ -155,6 +155,8 @@ BrowserSync proxy is hardcoded to `http://localhost/wordpress/` in [gulpfile.js:
 | `watch` | Start file watchers only (no initial compile) |
 | `stylesAdmin` | Compile `src/scss/admin-style.scss` → `build/css/admin-styles.min.css` |
 | `stylesBlockToggle` | Compile `src/scss/acf-block-toggle.scss` → `build/css/acf-block-toggle.min.css` |
+| `stylesEditorCanvas` | Compile `src/scss/editor-canvas-background.scss` → `build/css/editor-canvas-background.min.css` (block editor iframe canvas only) |
+| `stylesEditorPreview` | Concatenate compiled `style.min.css` + all section CSS, wrap in `@scope (body) to (:where(.acf-fields))` → `build/css/editor-preview.min.css`. Must run after `styles` (reads its output off disk) |
 
 ---
 
@@ -328,8 +330,13 @@ foreach ($blocks as $block_name) {
         'icon'            => 'admin-customizer',
         'mode'            => 'preview',
         'keywords'        => ['section', $block_name],
+        // Drives the editor canvas's full-width behavior — required for
+        // ACF Blocks v3 / WP 7.1's always-iframed editor. See "ACF Blocks
+        // v3 / iframe editor compatibility" below before changing this.
+        'align'                    => 'full',
+        'expanded_editor_buttons'  => ['toolbar'],
         'supports'        => [
-            'align' => false,
+            'align' => ['wide', 'full'],
             'mode'  => true,
             'jsx'   => true,
         ],
@@ -389,9 +396,25 @@ Handled in `inc/acf_blocks.php` at `wp_enqueue_scripts` priority **6** (after gl
 
 ### Admin/Editor assets
 
-- Admin CSS: `build/css/admin-styles.min.css` ← compiled from `src/scss/admin-style.scss` (via `admin_enqueue_scripts`)
-- Editor JS: `build/js/admin-scripts.min.js` ← compiled from `src/js/admin-scripts.js` (via `enqueue_block_editor_assets`)
-- Editor CSS: `build/css/acf-block-toggle.min.css` ← compiled from `src/scss/acf-block-toggle.scss` (via `enqueue_block_editor_assets`)
+- Admin CSS: `build/css/admin-styles.min.css` ← compiled from `src/scss/admin-style.scss` (via `admin_enqueue_scripts`) — reaches the **top-level wp-admin document only** (toolbar, Inspector sidebar). Currently hides ACF's duplicate sidebar fields panel (`.acf-block-panel`) now that editing is modal-only.
+- Editor JS: `build/js/admin-scripts.min.js` ← compiled from `src/js/admin-scripts.js` (via `enqueue_block_editor_assets`) — **skipped entirely** when `SMPLFY_DISABLE_ACF_TOGGLE` is defined true (see mu-plugin below); this is the old inline-toggle add-on, incompatible with ACF Blocks v3's iframed canvas.
+- Editor CSS: `build/css/acf-block-toggle.min.css` ← compiled from `src/scss/acf-block-toggle.scss` — enqueued via `enqueue_block_assets` (not `enqueue_block_editor_assets` — the toggle markup lives INSIDE the iframe canvas, which only the former reaches), also skipped when the toggle is disabled.
+- **Block editor iframe canvas** (`enqueue_block_assets`, gated to the iframe-collection pass only — see "ACF Blocks v3 / iframe editor compatibility" below): `build/css/editor-preview.min.css` (full frontend CSS, `@scope`-wrapped) and `build/css/editor-canvas-background.min.css` (canvas background + custom-block width pin). **Never confuse this hook's two passes** — `enqueue_block_assets` fires for both the top-level document and the iframe; gate iframe-only code behind `apply_filters('should_load_block_editor_scripts_and_styles', true)`.
+
+### ACF Blocks v3 / iframe editor compatibility
+
+WordPress 7.1 removed the last opt-out from the always-iframed block editor canvas. This theme's blocks are registered with `align: 'full'` + `expanded_editor_buttons: ['toolbar']` (see the registration snippet above) so editing happens through ACF Blocks v3's own "Edit" modal — this REQUIRES ACF Pro 6.6+. A companion mu-plugin, **not tracked in this repo** (mu-plugins are WP-instance-level, not theme-level), must be deployed to every environment's `wp-content/mu-plugins/`:
+
+- `acf_blocks_wp71_compat.php` — forces ACF Blocks v3 API on all blocks server-side, defines `SMPLFY_DISABLE_ACF_TOGGLE` (read by `inc/enqueue.php`), shows an admin notice if ACF < 6.6 is active.
+- `block_editor_reveal_animation_fix.php` — fixes three canvas-only cosmetic bugs common to any project once the canvas is iframed: scroll-reveal animations stuck invisible, clickable preview links breaking the iframe, Swiper sliders stuck in a dimmed state.
+
+Both files are portable/drop-in (no project-specific assumptions) — ask whoever set up this project for a copy, or regenerate from `~/Desktop/ACF-BLOCKS-V3-WP71-MIGRATION-GUIDE.md` if the same author's other projects have them (kasinot/fcs-theme/kcs-theme all do).
+
+**Before touching any editor-only CSS**, understand there are three separate editor stylesheets reaching three different documents — the wrong one is a silent no-op, not an error:
+1. `editor-preview.min.css` / `editor-canvas-background.min.css` (`enqueue_block_assets`, iframe-gated) → **iframe canvas body only**.
+2. `admin-styles.min.css` (`admin_enqueue_scripts`) → **top-level wp-admin document only** (sidebar/toolbar) — never the iframe.
+
+If a new project built from this starter later adds its own generic alignment CSS (e.g. `.alignfull > .container { max-width: 100%; }`), re-check `editor-canvas-background.scss`'s `.acf-block-preview > *` rule still applies correctly — it's what prevents that generic rule from wrongly stretching custom blocks' containers edge-to-edge in the canvas only.
 
 ### Asset versioning
 
@@ -517,6 +540,8 @@ When `generate-sections.js` creates a new SCSS file or JS file, lint will run ag
 
 14. ~~**`str_replace('investments_', '', $block_name)`**~~ — **FIXED 2026-05-26.** Legacy no-op removed from block title generation. Title now uses `ucwords(str_replace('_', ' ', $block_name))` directly.
 
+15. ~~**Blocks had `supports.align: false`, no top-level `align`**~~ — **FIXED 2026-08-21.** WordPress 7.1 removed the ability to opt out of the always-iframed block editor canvas; blocks now register `align: 'full'` + `expanded_editor_buttons: ['toolbar']` and rely on ACF Blocks v3's own modal for field editing instead of an inline-canvas toggle (which cannot reach into an iframe). See "ACF Blocks v3 / iframe editor compatibility" above — requires a companion mu-plugin not tracked in this repo.
+
 ---
 
 ## File Map
@@ -544,8 +569,9 @@ src/scss/partials/_fonts.scss          @font-face declarations for Formular type
 src/scss/partials/_header.scss         Header styles — EMPTY
 src/scss/partials/_footer.scss         Footer styles — EMPTY
 src/scss/partials/_errors.scss         Error page styles — EMPTY
-src/scss/acf-block-toggle.scss         Block editor ACF toggle panel styles → build/css/acf-block-toggle.min.css
-src/scss/admin-style.scss              Admin CSS source (empty) → build/css/admin-styles.min.css
+src/scss/acf-block-toggle.scss         Block editor ACF toggle panel styles → build/css/acf-block-toggle.min.css (disabled when SMPLFY_DISABLE_ACF_TOGGLE is set — see ACF Blocks v3 section above)
+src/scss/admin-style.scss              Admin CSS source → build/css/admin-styles.min.css. Hides ACF's duplicate sidebar fields panel (top-level wp-admin document only, never the iframe canvas)
+src/scss/editor-canvas-background.scss Block editor iframe canvas background + custom-block width pin → build/css/editor-canvas-background.min.css (iframe canvas only, never the top-level document)
 src/scss/sections/hero_section.scss    Hero section styles — EMPTY
 
 src/js/general.js                Global JS: header mobile toggle, smooth scroll, img.svg→inline SVG
